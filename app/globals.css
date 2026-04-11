@@ -1,0 +1,59 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html, body {
+  background: #0b0d12;
+}
+
+.prose-msg {
+  @apply leading-relaxed;
+}
+.prose-msg h1 { @apply text-xl font-semibold mt-4 mb-2; }
+.prose-msg h2 { @apply text-lg font-semibold mt-4 mb-2; }
+.prose-msg h3 { @apply text-base font-semibold mt-3 mb-1; }
+.prose-msg h4 { @apply text-sm font-semibold mt-3 mb-1; }
+.prose-msg p  { @apply my-2; }
+.prose-msg ul { @apply list-disc pl-5 my-2; }
+.prose-msg ol { @apply list-decimal pl-5 my-2; }
+.prose-msg li { @apply my-0.5; }
+.prose-msg code {
+  @apply bg-panel2 px-1 py-0.5 rounded text-[0.85em];
+}
+.prose-msg pre {
+  @apply bg-panel2 p-3 rounded border border-border overflow-x-auto my-3;
+}
+.prose-msg pre code {
+  @apply bg-transparent p-0;
+}
+.prose-msg table {
+  @apply w-full text-sm my-3 border border-border;
+}
+.prose-msg th, .prose-msg td {
+  @apply border border-border px-2 py-1 text-left;
+}
+.prose-msg th {
+  @apply bg-panel2;
+}
+.prose-msg a {
+  @apply text-accent underline;
+}
+.prose-msg blockquote {
+  @apply border-l-2 border-accent pl-3 text-muted my-2;
+}
+
+input, textarea, select {
+  @apply bg-panel2 border border-border rounded px-2 py-1.5 text-sm focus:outline-none focus:border-accent;
+}
+
+button {
+  @apply transition-colors;
+}
+
+.scrollbar-thin::-webkit-scrollbar { width: 8px; height: 8px; }
+.scrollbar-thin::-webkit-scrollbar-thumb { background: #262c3a; border-radius: 8px; }
+.scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
