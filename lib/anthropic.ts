@@ -142,3 +142,93 @@ export async function runAgent(params: {
     stopReason: response.stop_reason,
   };
 }
+
+// Streaming variant. Emits incremental text deltas through callbacks so the
+// UI can render a live "assessment in progress" view. Uses the Anthropic SDK's
+// high-level stream helper (which reassembles partial tool_use JSON etc.).
+export type AgentStreamCallbacks = {
+  onStart?: () => void;
+  onDelta: (textDelta: string) => void;
+  onDone: (result: {
+    text: string;
+    toolUses: { name: string; input: unknown }[];
+    usage: unknown;
+    stopReason: unknown;
+  }) => void | Promise<void>;
+  onError: (err: unknown) => void | Promise<void>;
+};
+
+export async function runAgentStream(
+  params: {
+    harness: HarnessConfig;
+    history: ChatMessage[];
+    userMessage: string;
+    docs: UploadedDoc[];
+  },
+  cb: AgentStreamCallbacks
+) {
+  const { harness, history, userMessage, docs } = params;
+  const system = buildSystemBlocks(harness);
+
+  const messages: AnyBlock[] = [];
+  for (const m of history) {
+    messages.push({ role: m.role, content: m.content });
+  }
+
+  const userContentBlocks: AnyBlock[] = [];
+  const docsText = buildDocsBlock(docs);
+  if (docsText) {
+    userContentBlocks.push({
+      type: "text",
+      text: docsText,
+      cache_control: { type: "ephemeral" },
+    });
+  }
+  userContentBlocks.push({ type: "text", text: userMessage });
+  messages.push({ role: "user", content: userContentBlocks });
+
+  const tools = harness.tools
+    .filter((t) => t.enabled)
+    .map((t) => ({
+      name: t.name,
+      description: t.description,
+      input_schema: t.input_schema,
+    }));
+
+  try {
+    cb.onStart?.();
+    const stream = client().messages.stream({
+      model: harness.model,
+      max_tokens: harness.max_tokens,
+      temperature: harness.temperature,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      system: system as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      messages: messages as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      tools: tools.length ? (tools as any) : undefined,
+    });
+
+    stream.on("text", (delta: string) => {
+      cb.onDelta(delta);
+    });
+
+    const final = await stream.finalMessage();
+
+    const textParts: string[] = [];
+    const toolUses: { name: string; input: unknown }[] = [];
+    for (const block of final.content) {
+      if (block.type === "text") textParts.push(block.text);
+      if (block.type === "tool_use") toolUses.push({ name: block.name, input: block.input });
+    }
+
+    await cb.onDone({
+      text: textParts.join("\n\n"),
+      toolUses,
+      usage: final.usage,
+      stopReason: final.stop_reason,
+    });
+  } catch (e) {
+    await cb.onError(e);
+  }
+}

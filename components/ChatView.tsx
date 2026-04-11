@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Markdown } from "./Markdown";
+import ProgressPanel from "./ProgressPanel";
+import { parseProgress, EMPTY_PROGRESS, type ProgressState } from "@/lib/progress";
 
 type Msg = { role: "user" | "assistant"; content: string };
 type Doc = { id: string; name: string; size: number; mime: string };
@@ -13,11 +15,77 @@ type Session = {
   report?: string;
 };
 
+type StreamMode = "chat" | "assessment";
+type StreamMeta = {
+  mode: StreamMode;
+  aspice_processes: string[];
+  target_cl: 1 | 2 | 3;
+  model: string;
+};
+
 const formatBytes = (b: number) => {
   if (b < 1024) return `${b} B`;
   if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
   return `${(b / 1024 / 1024).toFixed(1)} MB`;
 };
+
+// --- Minimal SSE client -----------------------------------------------------
+type SseHandlers = {
+  onStart?: (meta: StreamMeta) => void;
+  onDelta: (text: string) => void;
+  onDone: (payload: { text: string }) => void;
+  onError: (err: string) => void;
+};
+
+async function streamPost(url: string, body: unknown, h: SseHandlers, signal?: AbortSignal) {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!res.ok || !res.body) {
+    try {
+      const j = await res.json();
+      h.onError(j.error || `HTTP ${res.status}`);
+    } catch {
+      h.onError(`HTTP ${res.status}`);
+    }
+    return;
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    // SSE frames are separated by a blank line.
+    const frames = buffer.split("\n\n");
+    buffer = frames.pop() ?? "";
+    for (const raw of frames) {
+      const lines = raw.split("\n");
+      let event = "message";
+      const dataLines: string[] = [];
+      for (const line of lines) {
+        if (line.startsWith("event:")) event = line.slice(6).trim();
+        else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+      }
+      if (!dataLines.length) continue;
+      let parsed: Record<string, unknown> = {};
+      try {
+        parsed = JSON.parse(dataLines.join("\n"));
+      } catch {
+        continue;
+      }
+      if (event === "start" && h.onStart) h.onStart(parsed as unknown as StreamMeta);
+      else if (event === "delta") h.onDelta((parsed.text as string) || "");
+      else if (event === "done") h.onDone({ text: (parsed.text as string) || "" });
+      else if (event === "error") h.onError((parsed.error as string) || "unknown error");
+    }
+  }
+}
+// ---------------------------------------------------------------------------
 
 export default function ChatView() {
   const [sessions, setSessions] = useState<{ id: string; title: string; updated_at: string }[]>([]);
@@ -27,14 +95,24 @@ export default function ChatView() {
   const [uploadBusy, setUploadBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
+
+  // Streaming state
+  const [streamingText, setStreamingText] = useState<string>("");
+  const [progress, setProgress] = useState<ProgressState>(EMPTY_PROGRESS);
+  const [streamMeta, setStreamMeta] = useState<StreamMeta | null>(null);
+  const [elapsedMs, setElapsedMs] = useState<number>(0);
+  const streamStartRef = useRef<number>(0);
+  const abortRef = useRef<AbortController | null>(null);
+
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // --- session load/refresh ---
   const refreshSessions = useCallback(async () => {
     const res = await fetch("/api/session");
     const j = await res.json();
     setSessions(j.sessions || []);
-    return j.sessions as { id: string; title: string; updated_at: string }[];
+    return (j.sessions as { id: string; title: string; updated_at: string }[]) || [];
   }, []);
 
   const openSession = useCallback(async (id: string) => {
@@ -57,47 +135,110 @@ export default function ChatView() {
   useEffect(() => {
     (async () => {
       const list = await refreshSessions();
-      if (!list.length) {
-        await newSession();
-      } else {
-        await openSession(list[0].id);
-      }
+      if (!list.length) await newSession();
+      else await openSession(list[0].id);
     })();
   }, [refreshSessions, newSession, openSession]);
 
+  // Auto-scroll on new messages / streaming
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [active?.messages.length, busy]);
+  }, [active?.messages.length, busy, streamingText]);
+
+  // Elapsed time ticker while streaming
+  useEffect(() => {
+    if (!busy) return;
+    const t = setInterval(() => {
+      setElapsedMs(Date.now() - streamStartRef.current);
+    }, 250);
+    return () => clearInterval(t);
+  }, [busy]);
+
+  // Re-parse progress whenever streamingText changes
+  useEffect(() => {
+    if (!streamMeta) return;
+    setProgress(parseProgress(streamingText, streamMeta.aspice_processes, false));
+  }, [streamingText, streamMeta]);
+
+  const resetStreamState = () => {
+    setStreamingText("");
+    setProgress(EMPTY_PROGRESS);
+    setStreamMeta(null);
+    setElapsedMs(0);
+  };
+
+  // --- core stream invocation used by both chat and assessment ---
+  const runStream = useCallback(
+    async (url: string, body: unknown, displayUserMsg: string) => {
+      if (!active) return;
+      setBusy(true);
+      setError(null);
+      resetStreamState();
+      streamStartRef.current = Date.now();
+      abortRef.current = new AbortController();
+
+      // Optimistic user message
+      setActive((s) =>
+        s ? { ...s, messages: [...s.messages, { role: "user", content: displayUserMsg }] } : s
+      );
+
+      let gotStart = false;
+      let acc = "";
+      try {
+        await streamPost(
+          url,
+          body,
+          {
+            onStart: (meta) => {
+              gotStart = true;
+              setStreamMeta(meta);
+            },
+            onDelta: (t) => {
+              acc += t;
+              setStreamingText(acc);
+            },
+            onDone: (p) => {
+              const final = p.text || acc;
+              setActive((s) =>
+                s
+                  ? {
+                      ...s,
+                      messages: [...s.messages, { role: "assistant", content: final }],
+                      report: /^#\s*ASPICE Assessment Report/im.test(final) ? final : s.report,
+                    }
+                  : s
+              );
+              if (streamMeta || gotStart) {
+                setProgress((prev) => ({ ...prev, percent: 100, currentPhase: "done" }));
+              }
+            },
+            onError: (e) => {
+              setError(e);
+              // roll back optimistic user msg
+              setActive((s) => (s ? { ...s, messages: s.messages.slice(0, -1) } : s));
+            },
+          },
+          abortRef.current.signal
+        );
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : String(e));
+        setActive((s) => (s ? { ...s, messages: s.messages.slice(0, -1) } : s));
+      } finally {
+        setBusy(false);
+        abortRef.current = null;
+        // Keep the final progress panel visible briefly, then clear.
+        setTimeout(() => resetStreamState(), 800);
+      }
+    },
+    [active, streamMeta]
+  );
 
   const send = useCallback(async () => {
     if (!active || !input.trim() || busy) return;
     const msg = input.trim();
     setInput("");
-    setBusy(true);
-    setError(null);
-
-    // Optimistic
-    setActive((s) => (s ? { ...s, messages: [...s.messages, { role: "user", content: msg }] } : s));
-
-    try {
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ session_id: active.id, message: msg }),
-      });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j.error || "요청 실패");
-      setActive((s) =>
-        s ? { ...s, messages: [...s.messages, { role: "assistant", content: j.reply }] } : s
-      );
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e));
-      // roll back optimistic user msg
-      setActive((s) => (s ? { ...s, messages: s.messages.slice(0, -1) } : s));
-    } finally {
-      setBusy(false);
-    }
-  }, [active, input, busy]);
+    await runStream("/api/chat", { session_id: active.id, message: msg }, msg);
+  }, [active, input, busy, runStream]);
 
   const runAssessment = useCallback(async () => {
     if (!active || busy) return;
@@ -105,30 +246,14 @@ export default function ChatView() {
       setError("먼저 산출물을 업로드하세요.");
       return;
     }
-    setBusy(true);
-    setError(null);
-    setActive((s) =>
-      s ? { ...s, messages: [...s.messages, { role: "user", content: "평가 보고서를 생성해줘" }] } : s
-    );
-    try {
-      const res = await fetch("/api/assessment", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ session_id: active.id }),
-      });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j.error || "보고서 생성 실패");
-      setActive((s) =>
-        s ? { ...s, messages: [...s.messages, { role: "assistant", content: j.report }], report: j.report } : s
-      );
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e));
-      setActive((s) => (s ? { ...s, messages: s.messages.slice(0, -1) } : s));
-    } finally {
-      setBusy(false);
-    }
-  }, [active, busy]);
+    await runStream("/api/assessment", { session_id: active.id }, "평가 보고서를 생성해줘");
+  }, [active, busy, runStream]);
 
+  const cancelStream = () => {
+    abortRef.current?.abort();
+  };
+
+  // --- upload ---
   const uploadFiles = useCallback(
     async (files: FileList | File[]) => {
       if (!active) return;
@@ -203,9 +328,7 @@ export default function ChatView() {
               </div>
             </button>
           ))}
-          {!sessions.length && (
-            <div className="p-4 text-sm text-muted">세션이 없습니다.</div>
-          )}
+          {!sessions.length && <div className="p-4 text-sm text-muted">세션이 없습니다.</div>}
         </div>
 
         {active && (
@@ -274,12 +397,13 @@ export default function ChatView() {
                 uploadFiles(e.dataTransfer.files);
               }}
             >
-              {active.messages.length === 0 && (
+              {active.messages.length === 0 && !busy && (
                 <div className="text-center text-muted text-sm pt-12">
                   <div className="mb-2 text-base">ASPICE Assessor에 오신 것을 환영합니다.</div>
                   <div>
                     좌측에서 자동차 제어기 프로젝트의 산출물을 업로드한 뒤 질문하거나, <br />
-                    "평가 보고서 생성" 버튼을 눌러 보세요. 하네스 설정은 상단 메뉴에서 편집할 수 있습니다.
+                    &quot;평가 보고서 생성&quot; 버튼을 눌러 보세요. 하네스 설정은 상단 메뉴에서
+                    편집할 수 있습니다.
                   </div>
                 </div>
               )}
@@ -302,10 +426,49 @@ export default function ChatView() {
                   </div>
                 </div>
               ))}
+
+              {/* In-flight streaming bubble + live progress panel */}
               {busy && (
                 <div className="flex justify-start">
-                  <div className="bg-panel2 border border-border rounded-lg px-4 py-3 text-sm text-muted">
-                    어세서가 분석 중입니다…
+                  <div className="max-w-[92%] w-full space-y-3">
+                    {streamMeta && (
+                      <ProgressPanel
+                        state={progress}
+                        mode={streamMeta.mode}
+                        elapsedMs={elapsedMs}
+                        model={streamMeta.model}
+                        targetCL={streamMeta.target_cl}
+                      />
+                    )}
+                    <div className="bg-panel2 border border-border rounded-lg px-4 py-3 text-sm">
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="text-[10px] uppercase tracking-wide text-muted">
+                          어세서 (스트리밍)
+                        </div>
+                        <button
+                          onClick={cancelStream}
+                          className="text-[10px] text-bad hover:text-red-300"
+                        >
+                          중지
+                        </button>
+                      </div>
+                      {streamingText ? (
+                        <Markdown>{streamingText}</Markdown>
+                      ) : (
+                        <div className="flex items-center gap-1 text-muted">
+                          <span className="w-1.5 h-1.5 bg-accent rounded-full animate-bounce" />
+                          <span
+                            className="w-1.5 h-1.5 bg-accent rounded-full animate-bounce"
+                            style={{ animationDelay: "0.15s" }}
+                          />
+                          <span
+                            className="w-1.5 h-1.5 bg-accent rounded-full animate-bounce"
+                            style={{ animationDelay: "0.3s" }}
+                          />
+                          <span className="ml-2 text-xs">모델 준비 중…</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
