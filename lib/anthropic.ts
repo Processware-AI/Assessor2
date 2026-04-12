@@ -50,7 +50,7 @@ export async function buildSystemBlocks(cfg: HarnessConfig): Promise<AnyBlock[]>
   blocks.push({
     type: "text",
     text: `# Active Standard\n\nYou are acting as an assessor for: **${standard.name}** (version ${standard.version}).\nTarget maturity level: ${cfg.target_maturity_level}.\nDescription: ${standard.description}`,
-    cache_control: { type: "ephemeral" },
+    _wantCache: true,
   });
 
   for (const layer of cfg.prompt_layers) {
@@ -63,7 +63,7 @@ export async function buildSystemBlocks(cfg: HarnessConfig): Promise<AnyBlock[]>
       text: `# ${layer.label}\n\n${content}`,
     };
     if (layer.cache) {
-      block.cache_control = { type: "ephemeral" };
+      block._wantCache = true;
     }
     blocks.push(block);
   }
@@ -76,8 +76,24 @@ export async function buildSystemBlocks(cfg: HarnessConfig): Promise<AnyBlock[]>
   blocks.push({
     type: "text",
     text: rubricText,
-    cache_control: { type: "ephemeral" },
+    _wantCache: true,
   });
+
+  // Anthropic API allows max 4 cache_control blocks total (system + messages).
+  // Reserve 1 slot for the user docs block, so apply cache to at most 3 system
+  // blocks — preferring the last ones (larger, more stable content).
+  const MAX_SYSTEM_CACHE = 3;
+  const cacheIndices = blocks
+    .map((b, i) => (b._wantCache ? i : -1))
+    .filter((i) => i >= 0);
+  const keepIndices = new Set(cacheIndices.slice(-MAX_SYSTEM_CACHE));
+
+  for (let i = 0; i < blocks.length; i++) {
+    if (keepIndices.has(i)) {
+      blocks[i].cache_control = { type: "ephemeral" };
+    }
+    delete blocks[i]._wantCache;
+  }
 
   return blocks;
 }
