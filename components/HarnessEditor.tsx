@@ -90,9 +90,7 @@ export default function HarnessEditor() {
   };
 
   if (!cfg) {
-    return (
-      <div className="max-w-4xl mx-auto px-4 py-8 text-muted">하네스 설정을 불러오는 중…</div>
-    );
+    return <div className="text-muted text-sm">하네스 설정을 불러오는 중…</div>;
   }
 
   const toggleProcess = (id: string) => {
@@ -136,9 +134,9 @@ export default function HarnessEditor() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
+    <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <h1 className="text-xl font-semibold">하네스 설정</h1>
+        <h2 className="text-lg font-semibold">하네스 설정</h2>
         <div className="text-xs text-muted">
           마지막 저장: {cfg.updated_at ? new Date(cfg.updated_at).toLocaleString("ko-KR") : "-"}
         </div>

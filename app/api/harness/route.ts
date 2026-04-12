@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { loadHarness, saveHarness, resetHarness, type HarnessConfig } from "@/lib/harness";
-import { ASPICE_PROCESSES } from "@/lib/aspice";
+import { loadAspiceProcesses } from "@/lib/aspice";
 
 export async function GET() {
   const cfg = await loadHarness();
+  const processes = await loadAspiceProcesses();
   return NextResponse.json({
     harness: cfg,
-    available_processes: ASPICE_PROCESSES.map((p) => ({ id: p.id, name: p.name })),
+    available_processes: processes.map((p) => ({ id: p.id, name: p.name })),
   });
 }
 

@@ -1,6 +1,12 @@
 // ASPICE (Automotive SPICE) v4.0 process reference data used by the assessor.
-// This is an abbreviated, assessment-focused knowledge base; the agent uses this
-// as grounding context for evaluating uploaded deliverables.
+// This file exports a *seed* (DEFAULT_ASPICE_PROCESSES, also re-exported as
+// ASPICE_PROCESSES for backwards compat) plus JSON-backed load/save helpers.
+// At runtime the agent reads from data/aspice-processes.json, which the UI
+// (Process Reference Editor on /harness) can freely edit — including adding
+// company-specific processes / BPs that don't exist in the stock reference.
+
+import fs from "node:fs/promises";
+import path from "node:path";
 
 export type CapabilityLevel = 0 | 1 | 2 | 3 | 4 | 5;
 
@@ -21,7 +27,7 @@ export type AspiceProcess = {
   workProducts: string[];   // expected artefacts to look for
 };
 
-export const ASPICE_PROCESSES: AspiceProcess[] = [
+export const DEFAULT_ASPICE_PROCESSES: AspiceProcess[] = [
   {
     id: "SYS.1",
     name: "Requirements Elicitation",
@@ -237,12 +243,22 @@ export const ASPICE_PROCESSES: AspiceProcess[] = [
   },
 ];
 
-export function getProcess(id: string): AspiceProcess | undefined {
-  return ASPICE_PROCESSES.find((p) => p.id === id);
+// Backwards-compat alias — anything that imported { ASPICE_PROCESSES } still
+// works, but new code should prefer loadAspiceProcesses() so that user edits
+// from the Process Reference Editor are honored.
+export const ASPICE_PROCESSES = DEFAULT_ASPICE_PROCESSES;
+
+export function getProcess(
+  processes: AspiceProcess[],
+  id: string
+): AspiceProcess | undefined {
+  return processes.find((p) => p.id === id);
 }
 
-export function renderProcessBrief(ids: string[]): string {
-  const procs = ids.map(getProcess).filter(Boolean) as AspiceProcess[];
+export function renderProcessBrief(processes: AspiceProcess[], ids: string[]): string {
+  const procs = ids
+    .map((id) => getProcess(processes, id))
+    .filter(Boolean) as AspiceProcess[];
   return procs
     .map((p) => {
       const bps = p.basePractices
@@ -252,4 +268,62 @@ export function renderProcessBrief(ids: string[]): string {
       return `### ${p.id} — ${p.name}\n목적: ${p.purpose}\nBase Practices:\n${bps}\n기대 산출물:\n${wps}`;
     })
     .join("\n\n");
+}
+
+// -----------------------------------------------------------------------------
+// JSON-backed store (data/aspice-processes.json). The file is seeded from the
+// defaults on first access. Edits made through /api/aspice are persisted here
+// and picked up on the next LLM call.
+
+const DATA_DIR = path.join(process.cwd(), "data");
+const ASPICE_FILE = path.join(DATA_DIR, "aspice-processes.json");
+
+async function ensureDataDir() {
+  await fs.mkdir(DATA_DIR, { recursive: true });
+}
+
+export function isValidProcess(p: unknown): p is AspiceProcess {
+  if (!p || typeof p !== "object") return false;
+  const o = p as Record<string, unknown>;
+  if (typeof o.id !== "string" || o.id.length === 0) return false;
+  if (typeof o.name !== "string") return false;
+  if (typeof o.purpose !== "string") return false;
+  if (!Array.isArray(o.basePractices)) return false;
+  if (!Array.isArray(o.workProducts)) return false;
+  for (const bp of o.basePractices) {
+    if (!bp || typeof bp !== "object") return false;
+    const b = bp as Record<string, unknown>;
+    if (typeof b.id !== "string" || typeof b.title !== "string") return false;
+    if (b.description !== undefined && typeof b.description !== "string") return false;
+  }
+  for (const wp of o.workProducts) {
+    if (typeof wp !== "string") return false;
+  }
+  return true;
+}
+
+export async function loadAspiceProcesses(): Promise<AspiceProcess[]> {
+  await ensureDataDir();
+  try {
+    const raw = await fs.readFile(ASPICE_FILE, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) throw new Error("invalid file");
+    return parsed.filter(isValidProcess);
+  } catch {
+    await saveAspiceProcesses(DEFAULT_ASPICE_PROCESSES);
+    return DEFAULT_ASPICE_PROCESSES;
+  }
+}
+
+export async function saveAspiceProcesses(
+  list: AspiceProcess[]
+): Promise<AspiceProcess[]> {
+  await ensureDataDir();
+  const valid = list.filter(isValidProcess);
+  await fs.writeFile(ASPICE_FILE, JSON.stringify(valid, null, 2), "utf-8");
+  return valid;
+}
+
+export async function resetAspiceProcesses(): Promise<AspiceProcess[]> {
+  return saveAspiceProcesses(DEFAULT_ASPICE_PROCESSES);
 }

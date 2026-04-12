@@ -5,7 +5,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import type { HarnessConfig } from "./harness";
-import { renderProcessBrief } from "./aspice";
+import { loadAspiceProcesses, renderProcessBrief } from "./aspice";
 
 let _client: Anthropic | null = null;
 function client(): Anthropic {
@@ -34,15 +34,17 @@ export type ChatMessage = {
 type AnyBlock = Record<string, unknown>;
 
 // Compose the layered system prompt with cache_control breakpoints on stable
-// layers. The ASPICE reference knowledge is auto-injected from the harness's
-// selected processes.
-export function buildSystemBlocks(cfg: HarnessConfig): AnyBlock[] {
+// layers. The ASPICE reference knowledge is auto-injected from the currently
+// persisted process catalog (data/aspice-processes.json), filtered by the
+// harness's selected process IDs.
+export async function buildSystemBlocks(cfg: HarnessConfig): Promise<AnyBlock[]> {
   const blocks: AnyBlock[] = [];
+  const processes = await loadAspiceProcesses();
 
   for (const layer of cfg.prompt_layers) {
     let content = layer.content;
     if (layer.id === "aspice_knowledge") {
-      content = renderProcessBrief(cfg.aspice_processes);
+      content = renderProcessBrief(processes, cfg.aspice_processes);
     }
     const block: AnyBlock = {
       type: "text",
@@ -86,7 +88,7 @@ export async function runAgent(params: {
   docs: UploadedDoc[];
 }) {
   const { harness, history, userMessage, docs } = params;
-  const system = buildSystemBlocks(harness);
+  const system = await buildSystemBlocks(harness);
 
   const messages: AnyBlock[] = [];
   for (const m of history) {
@@ -168,7 +170,7 @@ export async function runAgentStream(
   cb: AgentStreamCallbacks
 ) {
   const { harness, history, userMessage, docs } = params;
-  const system = buildSystemBlocks(harness);
+  const system = await buildSystemBlocks(harness);
 
   const messages: AnyBlock[] = [];
   for (const m of history) {
