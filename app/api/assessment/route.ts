@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { loadSession, saveSession } from "@/lib/sessions";
-import { loadHarness } from "@/lib/harness";
+import { getActiveStandard } from "@/lib/standards";
 import { runAgentStream } from "@/lib/anthropic";
 
 // SSE streaming variant of the one-click assessment report. Mirrors
@@ -17,14 +17,16 @@ export async function POST(req: NextRequest) {
     return sseErrorResponse("평가할 산출물이 없습니다. 먼저 파일을 업로드하세요.", 400);
   }
 
-  const harness = await loadHarness();
+  const standard = await getActiveStandard();
+  const harness = standard.harness;
 
-  const prompt = `아래 업로드된 산출물 전체에 대해 ASPICE 평가 보고서를 생성하세요.
-반드시 하네스의 "Output Format" 섹션에 정의된 마크다운 형식(# ASPICE Assessment Report …)을 그대로 따르세요.
-대상 Capability Level: CL${harness.target_capability_level}
-평가 범위 프로세스: ${harness.aspice_processes.join(", ")}
-각 BP에 대해 N/P/L/F 판정과 구체적인 근거·갭·개선 권고를 포함하세요.
-보고서는 섹션 번호 순서(1 → 5)대로 작성하세요.`;
+  const prompt = `아래 업로드된 산출물 전체에 대해 ${standard.name} 기반 평가 보고서를 생성하세요.
+반드시 하네스의 "Output Format" 섹션에 정의된 마크다운 형식을 그대로 따르세요.
+대상 성숙도 Level: ${harness.target_maturity_level}
+평가 범위 reference items: ${harness.scope_item_ids.join(", ")}
+허용 판정 값: ${standard.ratings.join(" / ")}
+각 요구사항에 대해 판정과 구체적인 근거·갭·개선 권고를 포함하세요.
+보고서는 섹션 번호 순서대로 작성하세요.`;
 
   session.messages.push({ role: "user", content: "평가 보고서를 생성해줘" });
 
@@ -39,8 +41,10 @@ export async function POST(req: NextRequest) {
 
       send("start", {
         mode: "assessment",
-        aspice_processes: harness.aspice_processes,
-        target_cl: harness.target_capability_level,
+        standard_id: standard.id,
+        standard_name: standard.name,
+        aspice_processes: harness.scope_item_ids,
+        target_cl: harness.target_maturity_level,
         model: harness.model,
         doc_count: session.docs.length,
       });

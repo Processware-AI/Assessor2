@@ -12,3 +12,7 @@ data/uploads/*
 !data/uploads/.gitkeep
 data/sessions/*
 !data/sessions/.gitkeep
+data/standards/
+data/active_standard.json
+data/harness.json
+data/aspice-processes.json

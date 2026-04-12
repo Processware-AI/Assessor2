@@ -95,6 +95,7 @@ export default function ChatView() {
   const [uploadBusy, setUploadBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [standardLabel, setStandardLabel] = useState<string>("");
 
   // Streaming state
   const [streamingText, setStreamingText] = useState<string>("");
@@ -103,6 +104,23 @@ export default function ChatView() {
   const [elapsedMs, setElapsedMs] = useState<number>(0);
   const streamStartRef = useRef<number>(0);
   const abortRef = useRef<AbortController | null>(null);
+
+  // Keep the current standard label in sync for display.
+  useEffect(() => {
+    const loadStandard = async () => {
+      try {
+        const res = await fetch("/api/harness");
+        const j = await res.json();
+        if (j.standard) {
+          setStandardLabel(`${j.standard.name} (${j.standard.version})`);
+        }
+      } catch {}
+    };
+    loadStandard();
+    const h = () => loadStandard();
+    window.addEventListener("active-standard-changed", h);
+    return () => window.removeEventListener("active-standard-changed", h);
+  }, []);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -204,7 +222,7 @@ export default function ChatView() {
                   ? {
                       ...s,
                       messages: [...s.messages, { role: "assistant", content: final }],
-                      report: /^#\s*ASPICE Assessment Report/im.test(final) ? final : s.report,
+                      report: /^#\s.*Assessment Report/im.test(final) ? final : s.report,
                     }
                   : s
               );
@@ -333,6 +351,11 @@ export default function ChatView() {
 
         {active && (
           <div className="border-t border-border p-3">
+            {standardLabel && (
+              <div className="mb-2 text-[10px] px-2 py-1 rounded bg-accent/10 border border-accent/30 text-accent">
+                활성 표준: {standardLabel}
+              </div>
+            )}
             <div className="text-[11px] uppercase tracking-wide text-muted mb-2">
               첨부 산출물 ({active.docs.length})
             </div>
@@ -399,11 +422,14 @@ export default function ChatView() {
             >
               {active.messages.length === 0 && !busy && (
                 <div className="text-center text-muted text-sm pt-12">
-                  <div className="mb-2 text-base">ASPICE Assessor에 오신 것을 환영합니다.</div>
+                  <div className="mb-2 text-base">Multi-Standard Assessor</div>
+                  {standardLabel && (
+                    <div className="text-accent mb-3">현재 활성 표준: {standardLabel}</div>
+                  )}
                   <div>
-                    좌측에서 자동차 제어기 프로젝트의 산출물을 업로드한 뒤 질문하거나, <br />
-                    &quot;평가 보고서 생성&quot; 버튼을 눌러 보세요. 하네스 설정은 상단 메뉴에서
-                    편집할 수 있습니다.
+                    상단의 표준 선택기로 원하는 국제표준(ASPICE / ISO 21434 / 사용자 정의)을 고른 뒤,<br />
+                    좌측에서 산출물을 업로드하고 &quot;평가 보고서 생성&quot;을 눌러 보세요.<br />
+                    하네스·레퍼런스·표준 프로파일은 상단 메뉴의 &quot;하네스 설정&quot;에서 편집할 수 있습니다.
                   </div>
                 </div>
               )}

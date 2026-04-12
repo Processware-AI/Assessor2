@@ -4,8 +4,11 @@
 // - Supports an optional list of uploaded deliverables injected as user context
 
 import Anthropic from "@anthropic-ai/sdk";
-import type { HarnessConfig } from "./harness";
-import { loadAspiceProcesses, renderProcessBrief } from "./aspice";
+import {
+  getActiveStandard,
+  renderReferenceBrief,
+  type HarnessConfig,
+} from "./standards";
 
 let _client: Anthropic | null = null;
 function client(): Anthropic {
@@ -34,17 +37,26 @@ export type ChatMessage = {
 type AnyBlock = Record<string, unknown>;
 
 // Compose the layered system prompt with cache_control breakpoints on stable
-// layers. The ASPICE reference knowledge is auto-injected from the currently
-// persisted process catalog (data/aspice-processes.json), filtered by the
-// harness's selected process IDs.
+// layers. The reference knowledge is auto-injected from the currently active
+// standard's `reference` array, filtered by the harness's `scope_item_ids`.
+// The layer id `reference_knowledge` (or the legacy `aspice_knowledge`) is
+// replaced with the rendered brief.
 export async function buildSystemBlocks(cfg: HarnessConfig): Promise<AnyBlock[]> {
   const blocks: AnyBlock[] = [];
-  const processes = await loadAspiceProcesses();
+  const standard = await getActiveStandard();
+
+  // Prepend a short standard banner so the model always knows which spec it
+  // is evaluating against.
+  blocks.push({
+    type: "text",
+    text: `# Active Standard\n\nYou are acting as an assessor for: **${standard.name}** (version ${standard.version}).\nTarget maturity level: ${cfg.target_maturity_level}.\nDescription: ${standard.description}`,
+    cache_control: { type: "ephemeral" },
+  });
 
   for (const layer of cfg.prompt_layers) {
     let content = layer.content;
-    if (layer.id === "aspice_knowledge") {
-      content = renderProcessBrief(processes, cfg.aspice_processes);
+    if (layer.id === "reference_knowledge" || layer.id === "aspice_knowledge") {
+      content = renderReferenceBrief(standard.reference, cfg.scope_item_ids);
     }
     const block: AnyBlock = {
       type: "text",

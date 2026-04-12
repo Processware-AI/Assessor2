@@ -1,26 +1,41 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import HarnessEditor from "@/components/HarnessEditor";
 import ProcessReferenceEditor from "@/components/ProcessReferenceEditor";
+import StandardsManager from "@/components/StandardsManager";
 
-type Tab = "harness" | "aspice";
+type Tab = "harness" | "reference" | "standards";
 
 const TABS: { id: Tab; label: string; desc: string }[] = [
   {
     id: "harness",
     label: "하네스 설정",
-    desc: "에이전트 정체성 · 모델 · 프롬프트 레이어 · Rubric · 도구",
+    desc: "활성 표준의 에이전트 정체성 · 모델 · 프롬프트 레이어 · Rubric · 도구",
   },
   {
-    id: "aspice",
-    label: "프로세스 레퍼런스",
-    desc: "ASPICE 프로세스 · Base Practice · Work Product CRUD",
+    id: "reference",
+    label: "레퍼런스",
+    desc: "활성 표준의 Reference Item · Requirement · Work Product CRUD",
+  },
+  {
+    id: "standards",
+    label: "표준 프로파일",
+    desc: "ASPICE / ISO 21434 / 사용자 정의 표준 생성 · 복제 · 가져오기 · 내보내기",
   },
 ];
 
 export default function Page() {
   const [tab, setTab] = useState<Tab>("harness");
+  // Key used to force-remount the child editors when the active standard
+  // changes (so they re-fetch against the new profile).
+  const [key, setKey] = useState(0);
+
+  useEffect(() => {
+    const handler = () => setKey((k) => k + 1);
+    window.addEventListener("active-standard-changed", handler);
+    return () => window.removeEventListener("active-standard-changed", handler);
+  }, []);
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6 space-y-4">
@@ -48,7 +63,11 @@ export default function Page() {
       </div>
 
       <div className="pt-2">
-        {tab === "harness" ? <HarnessEditor /> : <ProcessReferenceEditor />}
+        {tab === "harness" && <HarnessEditor key={`h-${key}`} />}
+        {tab === "reference" && <ProcessReferenceEditor key={`r-${key}`} />}
+        {tab === "standards" && (
+          <StandardsManager key={`s-${key}`} onActiveChanged={() => setKey((k) => k + 1)} />
+        )}
       </div>
     </div>
   );

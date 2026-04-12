@@ -2,20 +2,21 @@
 
 import { useEffect, useState } from "react";
 
-type BP = { id: string; title: string; description: string };
+type Requirement = { id: string; type: string; title: string; description: string };
 type Process = {
   id: string;
   name: string;
   purpose: string;
-  basePractices: BP[];
+  requirements: Requirement[];
   workProducts: string[];
+  metadata?: Record<string, string>;
 };
 
 const blankProcess = (id: string): Process => ({
   id,
-  name: "새 프로세스",
+  name: "새 Reference Item",
   purpose: "",
-  basePractices: [],
+  requirements: [],
   workProducts: [],
 });
 
@@ -58,12 +59,14 @@ export default function ProcessReferenceEditor() {
   };
 
   const removeProcess = (id: string) => {
-    if (!confirm(`${id} 프로세스를 삭제하시겠습니까?`)) return;
+    if (!confirm(`${id}을(를) 삭제하시겠습니까?`)) return;
     markDirty(processes.filter((p) => p.id !== id));
   };
 
   const addProcess = () => {
-    const id = prompt("새 프로세스 ID를 입력하세요 (예: SWE.7, ACME.1):");
+    const id = prompt(
+      "새 Reference Item ID를 입력하세요 (예: SWE.7, Clause.14, ACME.CSEC):"
+    );
     if (!id) return;
     if (processes.some((p) => p.id === id)) {
       alert(`이미 존재하는 ID입니다: ${id}`);
@@ -73,43 +76,50 @@ export default function ProcessReferenceEditor() {
     setExpanded(new Set([...expanded, id]));
   };
 
-  const updateBP = (procIdx: number, bpIdx: number, patch: Partial<BP>) => {
+  const updateReq = (
+    procIdx: number,
+    reqIdx: number,
+    patch: Partial<Requirement>
+  ) => {
     const next = processes.slice();
-    const bps = next[procIdx].basePractices.slice();
-    bps[bpIdx] = { ...bps[bpIdx], ...patch };
-    next[procIdx] = { ...next[procIdx], basePractices: bps };
+    const reqs = next[procIdx].requirements.slice();
+    reqs[reqIdx] = { ...reqs[reqIdx], ...patch };
+    next[procIdx] = { ...next[procIdx], requirements: reqs };
     markDirty(next);
   };
 
-  const addBP = (procIdx: number) => {
+  const addReq = (procIdx: number) => {
     const next = processes.slice();
     const p = next[procIdx];
-    const bps = p.basePractices.slice();
-    bps.push({
-      id: `${p.id}.BP${bps.length + 1}`,
-      title: "새 BP",
+    const reqs = p.requirements.slice();
+    // Infer a sensible type from existing requirements, defaulting to "BP".
+    const defaultType = reqs[0]?.type || "BP";
+    reqs.push({
+      id: `${p.id}.${defaultType}${reqs.length + 1}`,
+      type: defaultType,
+      title: "새 Requirement",
       description: "",
     });
-    next[procIdx] = { ...p, basePractices: bps };
+    next[procIdx] = { ...p, requirements: reqs };
     markDirty(next);
   };
 
-  const removeBP = (procIdx: number, bpIdx: number) => {
+  const removeReq = (procIdx: number, reqIdx: number) => {
     const next = processes.slice();
     next[procIdx] = {
       ...next[procIdx],
-      basePractices: next[procIdx].basePractices.filter((_, i) => i !== bpIdx),
+      requirements: next[procIdx].requirements.filter((_, i) => i !== reqIdx),
     };
     markDirty(next);
   };
 
-  const moveBP = (procIdx: number, bpIdx: number, dir: -1 | 1) => {
+  const moveReq = (procIdx: number, reqIdx: number, dir: -1 | 1) => {
     const next = processes.slice();
-    const bps = next[procIdx].basePractices.slice();
-    const j = bpIdx + dir;
-    if (j < 0 || j >= bps.length) return;
-    [bps[bpIdx], bps[j]] = [bps[j], bps[bpIdx]];
-    next[procIdx] = { ...next[procIdx], basePractices: bps };
+    const reqs = next[procIdx].requirements.slice();
+    const j = reqIdx + dir;
+    if (j < 0 || j >= reqs.length) return;
+    [reqs[reqIdx], reqs[j]] = [reqs[j], reqs[reqIdx]];
+    next[procIdx] = { ...next[procIdx], requirements: reqs };
     markDirty(next);
   };
 
@@ -153,7 +163,7 @@ export default function ProcessReferenceEditor() {
       if (!res.ok) throw new Error(j.error || "저장 실패");
       setProcesses(j.processes);
       setDirty(false);
-      setStatus(`저장되었습니다. (${j.processes.length}개 프로세스)`);
+      setStatus(`저장되었습니다. (${j.processes.length}개 reference item)`);
     } catch (e) {
       setStatus(e instanceof Error ? e.message : String(e));
     } finally {
@@ -164,7 +174,7 @@ export default function ProcessReferenceEditor() {
   const resetDefaults = async () => {
     if (
       !confirm(
-        "모든 변경사항이 사라지고 기본 ASPICE v4.0 레퍼런스로 복원됩니다. 계속할까요?"
+        "모든 변경사항이 사라지고 현재 활성 표준의 기본 레퍼런스로 복원됩니다. 계속할까요?"
       )
     )
       return;
@@ -196,18 +206,18 @@ export default function ProcessReferenceEditor() {
 
   // --- render --------------------------------------------------------------
   if (loading) {
-    return <div className="text-muted text-sm">프로세스 레퍼런스를 불러오는 중…</div>;
+    return <div className="text-muted text-sm">레퍼런스를 불러오는 중…</div>;
   }
 
-  const totalBPs = processes.reduce((n, p) => n + p.basePractices.length, 0);
+  const totalReqs = processes.reduce((n, p) => n + p.requirements.length, 0);
   const totalWPs = processes.reduce((n, p) => n + p.workProducts.length, 0);
 
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3 flex-wrap">
-        <h2 className="text-lg font-semibold">프로세스 레퍼런스 편집기</h2>
+        <h2 className="text-lg font-semibold">레퍼런스 편집기</h2>
         <div className="text-xs text-muted">
-          {processes.length} 프로세스 · {totalBPs} BPs · {totalWPs} Work Products
+          {processes.length} items · {totalReqs} requirements · {totalWPs} Work Products
           {dirty && <span className="ml-2 text-warn">● 저장되지 않은 변경</span>}
         </div>
         <div className="ml-auto flex gap-2 flex-wrap">
@@ -227,7 +237,7 @@ export default function ProcessReferenceEditor() {
             onClick={addProcess}
             className="px-3 py-1.5 text-sm rounded border border-accent/40 text-accent hover:bg-accent/10"
           >
-            + 프로세스 추가
+            + Reference Item 추가
           </button>
           <button
             onClick={resetDefaults}
@@ -253,12 +263,12 @@ export default function ProcessReferenceEditor() {
       )}
 
       <p className="text-xs text-muted">
-        여기서 편집한 프로세스 · Base Practice · Work Product는{" "}
-        <code className="text-accent">data/aspice-processes.json</code>에 저장되며,
-        저장 즉시 하네스의 ASPICE Knowledge 시스템 프롬프트에 반영됩니다. 회사별 특화
-        프로세스(예: <code>ACME.1</code>)나 OEM 체크리스트를 자유롭게 추가/수정할 수
-        있습니다. 프로세스 ID를 변경하면 하네스 설정의 &quot;평가 대상 프로세스&quot;
-        체크박스에서 다시 선택해야 합니다.
+        여기서 편집한 Reference Item · Requirement · Work Product는{" "}
+        <strong>현재 활성 표준</strong>의 reference 배열에 저장되며, 저장 즉시 하네스의
+        Reference Knowledge 시스템 프롬프트에 반영됩니다. 회사별 특화 프로세스
+        (예: <code>ACME.CSEC</code>)나 OEM 체크리스트를 자유롭게 추가/수정할 수
+        있습니다. Requirement의 <code>type</code> 필드는 ASPICE는 <code>BP</code>,
+        ISO 21434는 <code>RQ/PM/RC</code>처럼 표준별로 자유롭게 지정할 수 있습니다.
       </p>
 
       {processes.map((p, pi) => {
@@ -269,10 +279,10 @@ export default function ProcessReferenceEditor() {
               onClick={() => toggle(p.id)}
               className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-panel2 rounded-t-lg"
             >
-              <span className="font-mono text-xs text-accent w-20 shrink-0">{p.id}</span>
+              <span className="font-mono text-xs text-accent w-24 shrink-0">{p.id}</span>
               <span className="flex-1 truncate font-medium">{p.name}</span>
               <span className="text-xs text-muted">
-                {p.basePractices.length} BPs · {p.workProducts.length} WPs
+                {p.requirements.length} reqs · {p.workProducts.length} WPs
               </span>
               <span className="text-muted">{isOpen ? "▼" : "▶"}</span>
             </button>
@@ -281,7 +291,7 @@ export default function ProcessReferenceEditor() {
               <div className="px-4 pb-4 space-y-3 border-t border-border">
                 <div className="grid grid-cols-3 gap-2 pt-3">
                   <label className="col-span-1">
-                    <div className="text-xs text-muted mb-1">프로세스 ID</div>
+                    <div className="text-xs text-muted mb-1">Reference ID</div>
                     <input
                       value={p.id}
                       onChange={(e) => updateProcess(pi, { id: e.target.value })}
@@ -311,43 +321,50 @@ export default function ProcessReferenceEditor() {
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <div className="text-xs text-muted">
-                      Base Practices ({p.basePractices.length})
+                      Requirements ({p.requirements.length})
                     </div>
                     <button
-                      onClick={() => addBP(pi)}
+                      onClick={() => addReq(pi)}
                       className="text-xs text-accent hover:underline"
                     >
-                      + BP 추가
+                      + Requirement 추가
                     </button>
                   </div>
                   <div className="space-y-1">
-                    {p.basePractices.map((bp, bi) => (
+                    {p.requirements.map((bp, bi) => (
                       <div
                         key={bi}
                         className="grid grid-cols-12 gap-1 items-center bg-panel2 border border-border rounded p-2"
                       >
                         <input
+                          className="col-span-1 font-mono text-xs"
+                          value={bp.type || ""}
+                          onChange={(e) => updateReq(pi, bi, { type: e.target.value })}
+                          placeholder="type"
+                          title="BP / RQ / PM / RC …"
+                        />
+                        <input
                           className="col-span-3 font-mono text-xs"
                           value={bp.id}
-                          onChange={(e) => updateBP(pi, bi, { id: e.target.value })}
+                          onChange={(e) => updateReq(pi, bi, { id: e.target.value })}
                         />
                         <input
                           className="col-span-3"
                           value={bp.title}
-                          onChange={(e) => updateBP(pi, bi, { title: e.target.value })}
+                          onChange={(e) => updateReq(pi, bi, { title: e.target.value })}
                           placeholder="제목"
                         />
                         <input
-                          className="col-span-4"
+                          className="col-span-3"
                           value={bp.description}
                           onChange={(e) =>
-                            updateBP(pi, bi, { description: e.target.value })
+                            updateReq(pi, bi, { description: e.target.value })
                           }
                           placeholder="설명 (선택)"
                         />
                         <div className="col-span-2 flex items-center justify-end gap-1">
                           <button
-                            onClick={() => moveBP(pi, bi, -1)}
+                            onClick={() => moveReq(pi, bi, -1)}
                             disabled={bi === 0}
                             className="text-muted hover:text-white disabled:opacity-30"
                             title="위로"
@@ -355,15 +372,15 @@ export default function ProcessReferenceEditor() {
                             ▲
                           </button>
                           <button
-                            onClick={() => moveBP(pi, bi, 1)}
-                            disabled={bi === p.basePractices.length - 1}
+                            onClick={() => moveReq(pi, bi, 1)}
+                            disabled={bi === p.requirements.length - 1}
                             className="text-muted hover:text-white disabled:opacity-30"
                             title="아래로"
                           >
                             ▼
                           </button>
                           <button
-                            onClick={() => removeBP(pi, bi)}
+                            onClick={() => removeReq(pi, bi)}
                             className="text-bad hover:text-red-300"
                             title="삭제"
                           >
@@ -372,9 +389,9 @@ export default function ProcessReferenceEditor() {
                         </div>
                       </div>
                     ))}
-                    {!p.basePractices.length && (
+                    {!p.requirements.length && (
                       <div className="text-xs text-muted italic px-2">
-                        BP가 없습니다. &quot;+ BP 추가&quot;로 시작하세요.
+                        Requirement이 없습니다. &quot;+ Requirement 추가&quot;로 시작하세요.
                       </div>
                     )}
                   </div>
@@ -425,7 +442,7 @@ export default function ProcessReferenceEditor() {
                     onClick={() => removeProcess(p.id)}
                     className="text-xs text-bad hover:text-red-300"
                   >
-                    이 프로세스 전체 삭제
+                    이 Reference Item 전체 삭제
                   </button>
                 </div>
               </div>
@@ -436,7 +453,7 @@ export default function ProcessReferenceEditor() {
 
       {!processes.length && (
         <div className="text-center text-muted text-sm py-8 bg-panel border border-dashed border-border rounded">
-          등록된 프로세스가 없습니다. 상단 &quot;+ 프로세스 추가&quot; 또는 &quot;기본값
+          등록된 Reference Item이 없습니다. 상단 &quot;+ Reference Item 추가&quot; 또는 &quot;기본값
           복원&quot;을 사용하세요.
         </div>
       )}

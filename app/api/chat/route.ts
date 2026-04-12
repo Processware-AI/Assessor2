@@ -36,8 +36,8 @@ export async function POST(req: NextRequest) {
 
       send("start", {
         mode: "chat",
-        aspice_processes: harness.aspice_processes,
-        target_cl: harness.target_capability_level,
+        aspice_processes: harness.scope_item_ids,
+        target_cl: harness.target_maturity_level,
         model: harness.model,
       });
 
@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
                 ? `(도구 호출: ${result.toolUses.map((t) => t.name).join(", ")})`
                 : "(응답 없음)");
             session.messages.push({ role: "assistant", content: assistantText });
-            if (/^#\s*ASPICE Assessment Report/im.test(assistantText)) {
+            if (/^#\s.*Assessment Report/im.test(assistantText)) {
               session.report = assistantText;
             }
             await saveSession(session);

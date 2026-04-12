@@ -24,13 +24,21 @@ type Harness = {
   model: string;
   max_tokens: number;
   temperature: number;
-  aspice_processes: string[];
-  target_capability_level: 1 | 2 | 3;
+  scope_item_ids: string[];
+  target_maturity_level: string;
   prompt_layers: PromptLayer[];
   tools: Tool[];
   rubric: Rubric[];
   output_format: "report_markdown" | "json" | "both";
   updated_at: string;
+};
+type MaturityLevel = { id: string; name: string; description: string };
+type StandardMeta = {
+  id: string;
+  name: string;
+  version: string;
+  ratings: string[];
+  maturity_levels: MaturityLevel[];
 };
 
 const MODEL_OPTIONS = [
@@ -42,6 +50,7 @@ const MODEL_OPTIONS = [
 export default function HarnessEditor() {
   const [cfg, setCfg] = useState<Harness | null>(null);
   const [available, setAvailable] = useState<{ id: string; name: string }[]>([]);
+  const [standard, setStandard] = useState<StandardMeta | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -49,7 +58,8 @@ export default function HarnessEditor() {
     const res = await fetch("/api/harness");
     const j = await res.json();
     setCfg(j.harness);
-    setAvailable(j.available_processes);
+    setAvailable(j.available_items || []);
+    setStandard(j.standard || null);
   };
   useEffect(() => {
     load();
@@ -93,14 +103,14 @@ export default function HarnessEditor() {
     return <div className="text-muted text-sm">하네스 설정을 불러오는 중…</div>;
   }
 
-  const toggleProcess = (id: string) => {
+  const toggleScopeItem = (id: string) => {
     setCfg((c) =>
       c
         ? {
             ...c,
-            aspice_processes: c.aspice_processes.includes(id)
-              ? c.aspice_processes.filter((p) => p !== id)
-              : [...c.aspice_processes, id],
+            scope_item_ids: c.scope_item_ids.includes(id)
+              ? c.scope_item_ids.filter((p) => p !== id)
+              : [...c.scope_item_ids, id],
           }
         : c
     );
@@ -138,6 +148,11 @@ export default function HarnessEditor() {
       <div className="flex items-center gap-3">
         <h2 className="text-lg font-semibold">하네스 설정</h2>
         <div className="text-xs text-muted">
+          {standard && (
+            <span className="mr-2">
+              활성 표준: <span className="text-accent">{standard.name}</span> ({standard.version})
+            </span>
+          )}
           마지막 저장: {cfg.updated_at ? new Date(cfg.updated_at).toLocaleString("ko-KR") : "-"}
         </div>
         <div className="ml-auto flex gap-2">
@@ -254,35 +269,41 @@ export default function HarnessEditor() {
             />
           </label>
           <label className="block">
-            <div className="text-xs text-muted mb-1">목표 Capability Level</div>
+            <div className="text-xs text-muted mb-1">목표 성숙도 Level</div>
             <select
-              value={cfg.target_capability_level}
+              value={cfg.target_maturity_level}
               onChange={(e) =>
-                setCfg({
-                  ...cfg,
-                  target_capability_level: Number(e.target.value) as 1 | 2 | 3,
-                })
+                setCfg({ ...cfg, target_maturity_level: e.target.value })
               }
               className="w-full"
             >
-              <option value={1}>CL1 Performed</option>
-              <option value={2}>CL2 Managed</option>
-              <option value={3}>CL3 Established</option>
+              {(standard?.maturity_levels?.length
+                ? standard.maturity_levels
+                : [{ id: cfg.target_maturity_level, name: cfg.target_maturity_level, description: "" }]
+              ).map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.id} {m.name ? `— ${m.name}` : ""}
+                </option>
+              ))}
             </select>
           </label>
         </div>
       </section>
 
-      {/* Processes */}
+      {/* Scope items */}
       <section className="bg-panel border border-border rounded-lg p-4 space-y-3">
-        <h2 className="font-semibold">평가 대상 ASPICE 프로세스</h2>
+        <h2 className="font-semibold">평가 대상 (Scope)</h2>
+        <p className="text-xs text-muted">
+          활성 표준의 reference item 중 평가에 포함할 항목을 선택하세요.
+          {standard && <> 현재 표준: <span className="text-accent">{standard.name}</span></>}
+        </p>
         <div className="grid grid-cols-2 gap-2">
           {available.map((p) => {
-            const on = cfg.aspice_processes.includes(p.id);
+            const on = cfg.scope_item_ids.includes(p.id);
             return (
               <button
                 key={p.id}
-                onClick={() => toggleProcess(p.id)}
+                onClick={() => toggleScopeItem(p.id)}
                 className={`text-left text-sm px-3 py-2 rounded border ${
                   on
                     ? "bg-accent/15 border-accent/50"
@@ -294,6 +315,11 @@ export default function HarnessEditor() {
               </button>
             );
           })}
+          {!available.length && (
+            <div className="col-span-2 text-xs text-muted italic">
+              활성 표준에 reference item이 없습니다.
+            </div>
+          )}
         </div>
       </section>
 

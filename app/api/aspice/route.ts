@@ -1,53 +1,56 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  loadAspiceProcesses,
-  saveAspiceProcesses,
-  resetAspiceProcesses,
-  isValidProcess,
-  type AspiceProcess,
-} from "@/lib/aspice";
+  getActiveStandard,
+  isValidReferenceItem,
+  resetActiveStandardToSeed,
+  saveStandard,
+  type ReferenceItem,
+} from "@/lib/standards";
 
-// GET  /api/aspice               → { processes: AspiceProcess[] }
-// PUT  /api/aspice               → body: { processes: AspiceProcess[] }  (replace whole list)
-//                                  or body: { process: AspiceProcess }   (upsert one)
-// POST /api/aspice               → body: { process: AspiceProcess }      (create one, fails if id exists)
-// DELETE /api/aspice?id=SWE.7    → remove one
-// DELETE /api/aspice?id=__reset__ → restore stock defaults
+// Legacy route name kept for backward compatibility. Under the hood this now
+// operates on the active standard's `reference` array — so editing through the
+// UI works for whichever standard is currently active (ASPICE, 21434, custom).
+//
+// GET    /api/aspice              → { processes: ReferenceItem[] }
+// PUT    /api/aspice              → body: { processes: ReferenceItem[] }  (replace)
+//                                    or body: { process: ReferenceItem }   (upsert)
+// POST   /api/aspice              → body: { process: ReferenceItem }       (create, 409 if exists)
+// DELETE /api/aspice?id=X         → remove one by id
+// DELETE /api/aspice?id=__reset__ → restore seed for active standard
 
 export async function GET() {
-  const processes = await loadAspiceProcesses();
-  return NextResponse.json({ processes });
+  const s = await getActiveStandard();
+  return NextResponse.json({ processes: s.reference });
 }
 
 export async function PUT(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
 
-  // Replace full list
   if (Array.isArray(body.processes)) {
     const incoming = body.processes as unknown[];
-    const invalid = incoming.filter((p) => !isValidProcess(p));
+    const invalid = incoming.filter((p) => !isValidReferenceItem(p));
     if (invalid.length) {
       return NextResponse.json(
-        { error: `${invalid.length}개 프로세스가 유효하지 않습니다.` },
+        { error: `${invalid.length}개 항목이 유효하지 않습니다.` },
         { status: 400 }
       );
     }
-    const saved = await saveAspiceProcesses(incoming as AspiceProcess[]);
-    return NextResponse.json({ processes: saved });
+    const s = await getActiveStandard();
+    const saved = await saveStandard({ ...s, reference: incoming as ReferenceItem[] });
+    return NextResponse.json({ processes: saved.reference });
   }
 
-  // Upsert single
   if (body.process) {
-    if (!isValidProcess(body.process)) {
-      return NextResponse.json({ error: "invalid process" }, { status: 400 });
+    if (!isValidReferenceItem(body.process)) {
+      return NextResponse.json({ error: "invalid reference item" }, { status: 400 });
     }
-    const list = await loadAspiceProcesses();
-    const next = list.slice();
-    const idx = next.findIndex((p) => p.id === body.process.id);
+    const s = await getActiveStandard();
+    const next = s.reference.slice();
+    const idx = next.findIndex((r) => r.id === body.process.id);
     if (idx >= 0) next[idx] = body.process;
     else next.push(body.process);
-    const saved = await saveAspiceProcesses(next);
-    return NextResponse.json({ processes: saved });
+    const saved = await saveStandard({ ...s, reference: next });
+    return NextResponse.json({ processes: saved.reference });
   }
 
   return NextResponse.json(
@@ -58,18 +61,21 @@ export async function PUT(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
-  if (!body.process || !isValidProcess(body.process)) {
-    return NextResponse.json({ error: "invalid process" }, { status: 400 });
+  if (!body.process || !isValidReferenceItem(body.process)) {
+    return NextResponse.json({ error: "invalid reference item" }, { status: 400 });
   }
-  const list = await loadAspiceProcesses();
-  if (list.some((p) => p.id === body.process.id)) {
+  const s = await getActiveStandard();
+  if (s.reference.some((r) => r.id === body.process.id)) {
     return NextResponse.json(
-      { error: `이미 존재하는 프로세스 ID: ${body.process.id}` },
+      { error: `이미 존재하는 ID: ${body.process.id}` },
       { status: 409 }
     );
   }
-  const saved = await saveAspiceProcesses([...list, body.process]);
-  return NextResponse.json({ processes: saved });
+  const saved = await saveStandard({
+    ...s,
+    reference: [...s.reference, body.process],
+  });
+  return NextResponse.json({ processes: saved.reference });
 }
 
 export async function DELETE(req: NextRequest) {
@@ -77,12 +83,21 @@ export async function DELETE(req: NextRequest) {
   if (!id) return NextResponse.json({ error: "missing id" }, { status: 400 });
 
   if (id === "__reset__") {
-    const list = await resetAspiceProcesses();
-    return NextResponse.json({ processes: list });
+    try {
+      const s = await resetActiveStandardToSeed();
+      return NextResponse.json({ processes: s.reference });
+    } catch (e: unknown) {
+      return NextResponse.json(
+        { error: e instanceof Error ? e.message : String(e) },
+        { status: 400 }
+      );
+    }
   }
 
-  const list = await loadAspiceProcesses();
-  const next = list.filter((p) => p.id !== id);
-  const saved = await saveAspiceProcesses(next);
-  return NextResponse.json({ processes: saved });
+  const s = await getActiveStandard();
+  const saved = await saveStandard({
+    ...s,
+    reference: s.reference.filter((r) => r.id !== id),
+  });
+  return NextResponse.json({ processes: saved.reference });
 }
