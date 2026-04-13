@@ -150,6 +150,17 @@ export default function ChatView() {
     if (j.session) setActive(j.session);
   }, [refreshSessions]);
 
+  const deleteSession = useCallback(async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm("이 세션을 삭제하시겠습니까?")) return;
+    await fetch(`/api/session?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+    const remaining = await refreshSessions();
+    if (active?.id === id) {
+      if (remaining.length > 0) await openSession(remaining[0].id);
+      else setActive(null);
+    }
+  }, [active, refreshSessions, openSession]);
+
   useEffect(() => {
     (async () => {
       const list = await refreshSessions();
@@ -333,18 +344,29 @@ export default function ChatView() {
         </div>
         <div className="flex-1 overflow-y-auto scrollbar-thin">
           {sessions.map((s) => (
-            <button
+            <div
               key={s.id}
-              onClick={() => openSession(s.id)}
-              className={`w-full text-left px-3 py-2 text-sm border-b border-border hover:bg-panel2 ${
+              className={`group relative flex items-center border-b border-border hover:bg-panel2 ${
                 active?.id === s.id ? "bg-panel2" : ""
               }`}
             >
-              <div className="truncate">{s.title}</div>
-              <div className="text-[10px] text-muted mt-0.5">
-                {new Date(s.updated_at).toLocaleString("ko-KR")}
-              </div>
-            </button>
+              <button
+                onClick={() => openSession(s.id)}
+                className="flex-1 text-left px-3 py-2 text-sm min-w-0"
+              >
+                <div className="truncate pr-6">{s.title}</div>
+                <div className="text-[10px] text-muted mt-0.5">
+                  {new Date(s.updated_at).toLocaleString("ko-KR")}
+                </div>
+              </button>
+              <button
+                onClick={(e) => deleteSession(s.id, e)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-500/20 text-muted hover:text-red-400 transition-opacity"
+                title="세션 삭제"
+              >
+                ×
+              </button>
+            </div>
           ))}
           {!sessions.length && <div className="p-4 text-sm text-muted">세션이 없습니다.</div>}
         </div>
