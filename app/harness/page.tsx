@@ -4,8 +4,9 @@ import { useEffect, useState } from "react";
 import HarnessEditor from "@/components/HarnessEditor";
 import ProcessReferenceEditor from "@/components/ProcessReferenceEditor";
 import StandardsManager from "@/components/StandardsManager";
+import ApiKeyEditor from "@/components/ApiKeyEditor";
 
-type Tab = "harness" | "reference" | "standards";
+type Tab = "harness" | "reference" | "standards" | "apikey";
 
 const TABS: { id: Tab; label: string; desc: string }[] = [
   {
@@ -22,6 +23,11 @@ const TABS: { id: Tab; label: string; desc: string }[] = [
     id: "standards",
     label: "표준 프로파일",
     desc: "ASPICE / ISO 21434 / 사용자 정의 표준 생성 · 복제 · 가져오기 · 내보내기",
+  },
+  {
+    id: "apikey",
+    label: "API 키",
+    desc: "Anthropic API 키 설정 및 관리",
   },
 ];
 
@@ -68,6 +74,7 @@ export default function Page() {
         {tab === "standards" && (
           <StandardsManager key={`s-${key}`} onActiveChanged={() => setKey((k) => k + 1)} />
         )}
+        {tab === "apikey" && <ApiKeyEditor />}
       </div>
     </div>
   );

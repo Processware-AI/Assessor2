@@ -9,12 +9,19 @@ import {
   renderReferenceBrief,
   type HarnessConfig,
 } from "./standards";
+import { getApiKey } from "./apikey";
 
 let _client: Anthropic | null = null;
-function client(): Anthropic {
+
+/** Reset the cached client (call after changing the stored API key). */
+export function resetClient(): void {
+  _client = null;
+}
+
+async function client(): Promise<Anthropic> {
   if (_client) return _client;
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not set");
+  const apiKey = await getApiKey();
+  if (!apiKey) throw new Error("ANTHROPIC_API_KEY가 설정되지 않았습니다. 하네스 설정 → API 키 탭에서 입력하세요.");
   _client = new Anthropic({ apiKey });
   return _client;
 }
@@ -146,7 +153,7 @@ export async function runAgent(params: {
 
   // Cast to the SDK's expected shape at the boundary. The SDK accepts these
   // structures and validates them server-side.
-  const response = await client().messages.create({
+  const response = await (await client()).messages.create({
     model: harness.model,
     max_tokens: harness.max_tokens,
     temperature: harness.temperature,
@@ -227,7 +234,7 @@ export async function runAgentStream(
 
   try {
     cb.onStart?.();
-    const stream = client().messages.stream({
+    const stream = (await client()).messages.stream({
       model: harness.model,
       max_tokens: harness.max_tokens,
       temperature: harness.temperature,
