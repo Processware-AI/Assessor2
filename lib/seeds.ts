@@ -41,7 +41,7 @@ const ASPICE_HARNESS: HarnessConfig = {
   description:
     "자동차 제어기 프로젝트 산출물을 ASPICE v4.0 기반으로 평가하는 AI 어세서. SWE/SYS/MAN/SUP 영역의 BP 충족도를 분석하고 갭과 개선안을 제시한다.",
   role: "assessor",
-  model: "claude-opus-4-6",
+  model: "gpt-4o",
   max_tokens: 4096,
   temperature: 0.2,
   scope_item_ids: ASPICE_REFERENCE.map((r) => r.id),
@@ -329,7 +329,7 @@ const ISO21434_HARNESS: HarnessConfig = {
   description:
     "자동차 사이버보안 엔지니어링 표준 ISO/SAE 21434 기반으로 TARA·사이버보안 개념·제품 개발·검증·운영 단계를 평가하는 AI 어세서.",
   role: "assessor",
-  model: "claude-opus-4-6",
+  model: "gpt-4o",
   max_tokens: 4096,
   temperature: 0.2,
   scope_item_ids: ISO21434_REFERENCE.map((r) => r.id),

@@ -1,21 +1,20 @@
-// Thin wrapper around the Anthropic SDK used by our API routes.
+// Thin wrapper around the OpenAI SDK used by our API routes.
 // - Builds a layered system prompt from the harness config
-// - Uses prompt caching on stable layers (identity / aspice knowledge / rubric)
 // - Supports an optional list of uploaded deliverables injected as user context
 
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import {
   getActiveStandard,
   renderReferenceBrief,
   type HarnessConfig,
 } from "./standards";
 
-let _client: Anthropic | null = null;
-function client(): Anthropic {
+let _client: OpenAI | null = null;
+function client(): OpenAI {
   if (_client) return _client;
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not set");
-  _client = new Anthropic({ apiKey });
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error("OPENAI_API_KEY is not set");
+  _client = new OpenAI({ apiKey });
   return _client;
 }
 
@@ -32,40 +31,26 @@ export type ChatMessage = {
   content: string;
 };
 
-// Loose types so we don't depend on exact SDK type paths — the SDK will
-// validate at runtime. All blocks we build are plain JSON objects.
+// Loose types so we don't depend on exact SDK type paths.
 type AnyBlock = Record<string, unknown>;
 
-// Compose the layered system prompt with cache_control breakpoints on stable
-// layers. The reference knowledge is auto-injected from the currently active
+// Compose the layered system prompt string from the harness config.
+// The reference knowledge is auto-injected from the currently active
 // standard's `reference` array, filtered by the harness's `scope_item_ids`.
-// The layer id `reference_knowledge` (or the legacy `aspice_knowledge`) is
-// replaced with the rendered brief.
-export async function buildSystemBlocks(cfg: HarnessConfig): Promise<AnyBlock[]> {
-  const blocks: AnyBlock[] = [];
+async function buildSystemPrompt(cfg: HarnessConfig): Promise<string> {
   const standard = await getActiveStandard();
+  const parts: string[] = [];
 
-  // Prepend a short standard banner so the model always knows which spec it
-  // is evaluating against.
-  blocks.push({
-    type: "text",
-    text: `# Active Standard\n\nYou are acting as an assessor for: **${standard.name}** (version ${standard.version}).\nTarget maturity level: ${cfg.target_maturity_level}.\nDescription: ${standard.description}`,
-    _wantCache: true,
-  });
+  parts.push(
+    `# Active Standard\n\nYou are acting as an assessor for: **${standard.name}** (version ${standard.version}).\nTarget maturity level: ${cfg.target_maturity_level}.\nDescription: ${standard.description}`
+  );
 
   for (const layer of cfg.prompt_layers) {
     let content = layer.content;
     if (layer.id === "reference_knowledge" || layer.id === "aspice_knowledge") {
       content = renderReferenceBrief(standard.reference, cfg.scope_item_ids);
     }
-    const block: AnyBlock = {
-      type: "text",
-      text: `# ${layer.label}\n\n${content}`,
-    };
-    if (layer.cache) {
-      block._wantCache = true;
-    }
-    blocks.push(block);
+    parts.push(`# ${layer.label}\n\n${content}`);
   }
 
   const rubricText =
@@ -73,29 +58,9 @@ export async function buildSystemBlocks(cfg: HarnessConfig): Promise<AnyBlock[]>
     cfg.rubric
       .map((r) => `- ${r.label} (${r.id}, weight=${r.weight}): ${r.description}`)
       .join("\n");
-  blocks.push({
-    type: "text",
-    text: rubricText,
-    _wantCache: true,
-  });
+  parts.push(rubricText);
 
-  // Anthropic API allows max 4 cache_control blocks total (system + messages).
-  // Reserve 1 slot for the user docs block, so apply cache to at most 3 system
-  // blocks — preferring the last ones (larger, more stable content).
-  const MAX_SYSTEM_CACHE = 3;
-  const cacheIndices = blocks
-    .map((b, i) => (b._wantCache ? i : -1))
-    .filter((i) => i >= 0);
-  const keepIndices = new Set(cacheIndices.slice(-MAX_SYSTEM_CACHE));
-
-  for (let i = 0; i < blocks.length; i++) {
-    if (keepIndices.has(i)) {
-      blocks[i].cache_control = { type: "ephemeral" };
-    }
-    delete blocks[i]._wantCache;
-  }
-
-  return blocks;
+  return parts.join("\n\n---\n\n");
 }
 
 function buildDocsBlock(docs: UploadedDoc[]): string {
@@ -109,6 +74,19 @@ function buildDocsBlock(docs: UploadedDoc[]): string {
   )}`;
 }
 
+function buildTools(harness: HarnessConfig) {
+  return harness.tools
+    .filter((t) => t.enabled)
+    .map((t) => ({
+      type: "function" as const,
+      function: {
+        name: t.name,
+        description: t.description,
+        parameters: t.input_schema,
+      },
+    }));
+}
+
 export async function runAgent(params: {
   harness: HarnessConfig;
   history: ChatMessage[];
@@ -116,66 +94,52 @@ export async function runAgent(params: {
   docs: UploadedDoc[];
 }) {
   const { harness, history, userMessage, docs } = params;
-  const system = await buildSystemBlocks(harness);
+  const systemPrompt = await buildSystemPrompt(harness);
 
-  const messages: AnyBlock[] = [];
+  const messages: AnyBlock[] = [{ role: "system", content: systemPrompt }];
   for (const m of history) {
     messages.push({ role: m.role, content: m.content });
   }
 
-  const userContentBlocks: AnyBlock[] = [];
+  const userContent: AnyBlock[] = [];
   const docsText = buildDocsBlock(docs);
   if (docsText) {
-    userContentBlocks.push({
-      type: "text",
-      text: docsText,
-      cache_control: { type: "ephemeral" },
-    });
+    userContent.push({ type: "text", text: docsText });
   }
-  userContentBlocks.push({ type: "text", text: userMessage });
+  userContent.push({ type: "text", text: userMessage });
+  messages.push({ role: "user", content: userContent });
 
-  messages.push({ role: "user", content: userContentBlocks });
+  const tools = buildTools(harness);
 
-  const tools = harness.tools
-    .filter((t) => t.enabled)
-    .map((t) => ({
-      name: t.name,
-      description: t.description,
-      input_schema: t.input_schema,
-    }));
-
-  // Cast to the SDK's expected shape at the boundary. The SDK accepts these
-  // structures and validates them server-side.
-  const response = await client().messages.create({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const response = await client().chat.completions.create({
     model: harness.model,
     max_tokens: harness.max_tokens,
     temperature: harness.temperature,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    system: system as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     messages: messages as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    tools: tools.length ? (tools as any) : undefined,
+    tools: tools.length ? tools : undefined,
   });
 
-  const textParts: string[] = [];
-  const toolUses: { name: string; input: unknown }[] = [];
-  for (const block of response.content) {
-    if (block.type === "text") textParts.push(block.text);
-    if (block.type === "tool_use") toolUses.push({ name: block.name, input: block.input });
-  }
+  const choice = response.choices[0];
+  const text = choice.message.content ?? "";
+  const toolUses = (choice.message.tool_calls ?? []).map((tc) => ({
+    name: tc.function.name,
+    input: (() => {
+      try { return JSON.parse(tc.function.arguments || "{}"); } catch { return {}; }
+    })(),
+  }));
 
   return {
-    text: textParts.join("\n\n"),
+    text,
     toolUses,
     usage: response.usage,
-    stopReason: response.stop_reason,
+    stopReason: choice.finish_reason,
   };
 }
 
 // Streaming variant. Emits incremental text deltas through callbacks so the
-// UI can render a live "assessment in progress" view. Uses the Anthropic SDK's
-// high-level stream helper (which reassembles partial tool_use JSON etc.).
+// UI can render a live "assessment in progress" view.
 export type AgentStreamCallbacks = {
   onStart?: () => void;
   onDelta: (textDelta: string) => void;
@@ -198,65 +162,79 @@ export async function runAgentStream(
   cb: AgentStreamCallbacks
 ) {
   const { harness, history, userMessage, docs } = params;
-  const system = await buildSystemBlocks(harness);
+  const systemPrompt = await buildSystemPrompt(harness);
 
-  const messages: AnyBlock[] = [];
+  const messages: AnyBlock[] = [{ role: "system", content: systemPrompt }];
   for (const m of history) {
     messages.push({ role: m.role, content: m.content });
   }
 
-  const userContentBlocks: AnyBlock[] = [];
+  const userContent: AnyBlock[] = [];
   const docsText = buildDocsBlock(docs);
   if (docsText) {
-    userContentBlocks.push({
-      type: "text",
-      text: docsText,
-      cache_control: { type: "ephemeral" },
-    });
+    userContent.push({ type: "text", text: docsText });
   }
-  userContentBlocks.push({ type: "text", text: userMessage });
-  messages.push({ role: "user", content: userContentBlocks });
+  userContent.push({ type: "text", text: userMessage });
+  messages.push({ role: "user", content: userContent });
 
-  const tools = harness.tools
-    .filter((t) => t.enabled)
-    .map((t) => ({
-      name: t.name,
-      description: t.description,
-      input_schema: t.input_schema,
-    }));
+  const tools = buildTools(harness);
 
   try {
     cb.onStart?.();
-    const stream = client().messages.stream({
+
+    const stream = await client().chat.completions.create({
       model: harness.model,
       max_tokens: harness.max_tokens,
       temperature: harness.temperature,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      system: system as any,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       messages: messages as any,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      tools: tools.length ? (tools as any) : undefined,
+      tools: tools.length ? tools : undefined,
+      stream: true,
+      stream_options: { include_usage: true },
     });
-
-    stream.on("text", (delta: string) => {
-      cb.onDelta(delta);
-    });
-
-    const final = await stream.finalMessage();
 
     const textParts: string[] = [];
-    const toolUses: { name: string; input: unknown }[] = [];
-    for (const block of final.content) {
-      if (block.type === "text") textParts.push(block.text);
-      if (block.type === "tool_use") toolUses.push({ name: block.name, input: block.input });
+    const toolCallsAcc: Record<number, { id: string; name: string; arguments: string }> = {};
+    let stopReason: string | null = null;
+    let usage: unknown = null;
+
+    for await (const chunk of stream) {
+      const delta = chunk.choices[0]?.delta;
+
+      if (delta?.content) {
+        cb.onDelta(delta.content);
+        textParts.push(delta.content);
+      }
+
+      if (delta?.tool_calls) {
+        for (const tc of delta.tool_calls) {
+          if (!toolCallsAcc[tc.index]) {
+            toolCallsAcc[tc.index] = { id: tc.id ?? "", name: tc.function?.name ?? "", arguments: "" };
+          }
+          toolCallsAcc[tc.index].arguments += tc.function?.arguments ?? "";
+        }
+      }
+
+      if (chunk.choices[0]?.finish_reason) {
+        stopReason = chunk.choices[0].finish_reason;
+      }
+      if (chunk.usage) {
+        usage = chunk.usage;
+      }
     }
 
+    const toolUses = Object.values(toolCallsAcc).map((tc) => ({
+      name: tc.name,
+      input: (() => {
+        try { return JSON.parse(tc.arguments || "{}"); } catch { return {}; }
+      })(),
+    }));
+
     await cb.onDone({
-      text: textParts.join("\n\n"),
+      text: textParts.join(""),
       toolUses,
-      usage: final.usage,
-      stopReason: final.stop_reason,
+      usage,
+      stopReason,
     });
   } catch (e) {
     await cb.onError(e);
