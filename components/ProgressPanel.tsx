@@ -26,7 +26,8 @@ const DOT = (status: "pending" | "active" | "done") => {
 
 export default function ProgressPanel({ state, mode, elapsedMs, model, targetCL }: Props) {
   const ratingTotal =
-    state.ratings.N + state.ratings.P + state.ratings.L + state.ratings.F + state.ratings.NR;
+    state.ratings.N + state.ratings["P-"] + state.ratings["P+"] +
+    state.ratings["L-"] + state.ratings["L+"] + state.ratings.F + state.ratings.NR;
 
   return (
     <div className="bg-panel2/80 border border-border rounded-lg p-4 space-y-4">
@@ -123,21 +124,25 @@ export default function ProgressPanel({ state, mode, elapsedMs, model, targetCL 
           <div className="text-[10px] uppercase tracking-wide text-muted mb-2">
             BP 판정 집계 (스트리밍)
           </div>
-          <div className="grid grid-cols-5 gap-1 text-center text-[11px]">
-            {(["F", "L", "P", "N", "NR"] as const).map((k) => {
+          <div className="grid grid-cols-7 gap-1 text-center text-[11px]">
+            {(["F", "L+", "L-", "P+", "P-", "N", "NR"] as const).map((k) => {
               const n = state.ratings[k];
               const color =
                 k === "F"
                   ? "bg-good/20 border-good/40 text-good"
-                  : k === "L"
-                  ? "bg-good/10 border-good/20 text-white"
-                  : k === "P"
-                  ? "bg-warn/15 border-warn/30 text-warn"
+                  : k === "L+"
+                  ? "bg-good/12 border-good/25 text-white"
+                  : k === "L-"
+                  ? "bg-good/8 border-good/15 text-white"
+                  : k === "P+"
+                  ? "bg-warn/20 border-warn/40 text-warn"
+                  : k === "P-"
+                  ? "bg-warn/10 border-warn/25 text-warn"
                   : k === "N"
                   ? "bg-bad/15 border-bad/40 text-bad"
                   : "bg-panel border-border text-muted";
               return (
-                <div key={k} className={`rounded border px-2 py-1 ${color}`}>
+                <div key={k} className={`rounded border px-1 py-1 ${color}`}>
                   <div className="font-mono text-sm">{n}</div>
                   <div className="text-[9px] text-muted">{k}</div>
                 </div>
