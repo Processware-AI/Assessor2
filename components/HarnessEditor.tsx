@@ -42,9 +42,10 @@ type StandardMeta = {
 };
 
 const MODEL_OPTIONS = [
-  { id: "claude-opus-4-6",      label: "Claude Opus 4.6 (최고 정확도)" },
-  { id: "claude-sonnet-4-6",    label: "Claude Sonnet 4.6 (빠르고 균형)" },
-  { id: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5 (경량, 빠름)" },
+  { id: "gpt-4o",        label: "GPT-4o (최고 정확도)" },
+  { id: "gpt-4o-mini",   label: "GPT-4o mini (빠르고 균형)" },
+  { id: "gpt-4.1",       label: "GPT-4.1 (최신, 고성능)" },
+  { id: "gpt-4.1-mini",  label: "GPT-4.1 mini (경량, 빠름)" },
 ];
 
 export default function HarnessEditor() {

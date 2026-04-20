@@ -35,7 +35,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </header>
           <main className="flex-1">{children}</main>
           <footer className="border-t border-border text-xs text-muted text-center py-3">
-            ASPICE v4.0 · ISO/SAE 21434 · 사용자 정의 표준 · Claude Opus 4.6
+            ASPICE v4.0 · ISO/SAE 21434 · 사용자 정의 표준 · GPT-4o
           </footer>
         </div>
       </body>
