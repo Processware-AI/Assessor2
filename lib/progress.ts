@@ -31,7 +31,7 @@ export type ProgressState = {
   charCount: number;
   // Rating counts harvested from a "| N/P/L/F |" markdown table while
   // streaming. Rough but fun to watch.
-  ratings: { N: number; P: number; L: number; F: number; NR: number };
+  ratings: { N: number; "P-": number; "P+": number; "L-": number; "L+": number; F: number; NR: number };
 };
 
 const PHASES: { id: PhaseId; label: string; marker: RegExp }[] = [
@@ -44,7 +44,7 @@ const PHASES: { id: PhaseId; label: string; marker: RegExp }[] = [
 
 // Match a table cell with just N/P/L/F/NR — very loose since we're seeing
 // partial markdown tables.
-const RATING_CELL = /\|\s*([NPLF]|NR)\s*\|/g;
+const RATING_CELL = /\|\s*(N|P[+-]?|L[+-]?|F|NR)\s*\|/g;
 
 export function parseProgress(
   text: string,
@@ -89,7 +89,7 @@ export function parseProgress(
   }
 
   // Rating tally from tables seen so far.
-  const ratings = { N: 0, P: 0, L: 0, F: 0, NR: 0 };
+  const ratings = { N: 0, "P-": 0, "P+": 0, "L-": 0, "L+": 0, F: 0, NR: 0 };
   let m: RegExpExecArray | null;
   const regex = new RegExp(RATING_CELL.source, "g");
   while ((m = regex.exec(text)) !== null) {
@@ -129,5 +129,5 @@ export const EMPTY_PROGRESS: ProgressState = {
   processes: [],
   percent: 0,
   charCount: 0,
-  ratings: { N: 0, P: 0, L: 0, F: 0, NR: 0 },
+  ratings: { N: 0, "P-": 0, "P+": 0, "L-": 0, "L+": 0, F: 0, NR: 0 },
 };

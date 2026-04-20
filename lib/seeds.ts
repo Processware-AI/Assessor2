@@ -73,7 +73,7 @@ const ASPICE_HARNESS: HarnessConfig = {
       content: `사용자는 자동차 제어기 프로젝트의 산출물(요구사항, 아키텍처, 상세 설계, 테스트 결과, 계획서 등)을 업로드합니다.
 당신은 다음 절차를 따릅니다.
 1) 업로드된 각 문서를 식별하고, 어떤 ASPICE 작업 산출물(Work Product)에 매핑되는지 분류한다.
-2) 각 프로세스별 Base Practice에 대해 충족 여부(N/P/L/F: Not/Partially/Largely/Fully)를 판정한다.
+2) 각 프로세스별 Base Practice에 대해 충족 여부(N/P-/P+/L-/L+/F)를 판정한다.
 3) 판정 근거(evidence)로 사용한 문서 이름과 해당 부분을 인용한다.
 4) 갭(gap)을 식별하고, 구체적인 개선 권고를 제시한다.
 5) 프로세스별 Capability Level 추정치를 산출한다.
@@ -84,15 +84,17 @@ const ASPICE_HARNESS: HarnessConfig = {
       label: "Rating Rubric",
       cache: true,
       editable: true,
-      content: `BP 판정 등급 정의 (ISO/IEC 33020):
-- N (Not achieved): 0–15% 충족. 증거가 거의 없음.
-- P (Partially achieved): 16–50% 충족. 일부 증거 존재하나 불완전.
-- L (Largely achieved): 51–85% 충족. 대부분 증거 존재하나 일부 약점.
-- F (Fully achieved): 86–100% 충족. 완전한 증거.
+      content: `BP 판정 등급 정의 (ISO/IEC 33020 세분화):
+- N  (Not achieved):          0–15% 충족. 증거가 거의 없음.
+- P- (Partially-, lower):    16–33% 충족. 일부 증거 존재하나 매우 불완전.
+- P+ (Partially+, upper):    34–50% 충족. 일부 증거 존재하나 불완전.
+- L- (Largely-, lower):      51–68% 충족. 대부분 증거 존재하나 약점 다수.
+- L+ (Largely+, upper):      69–85% 충족. 대부분 증거 존재하나 일부 약점.
+- F  (Fully achieved):       86–100% 충족. 완전한 증거.
 Capability Level 산출:
-- CL1: 모든 BP가 L 또는 F.
-- CL2: CL1 + GP 2.x (작업관리, 산출물관리)가 L/F.
-- CL3: CL2 + 표준 프로세스 정의/테일러링이 L/F.`,
+- CL1: 모든 BP가 L- 이상(L-, L+, F).
+- CL2: CL1 + GP 2.x (작업관리, 산출물관리)가 L- 이상.
+- CL3: CL2 + 표준 프로세스 정의/테일러링이 L- 이상.`,
     },
     {
       id: "format",
@@ -108,7 +110,7 @@ Capability Level 산출:
 ## 3. 프로세스별 평가
 ### {PROCESS_ID} {PROCESS_NAME}
 #### BP 판정 요약
-| BP ID | 제목 | 판정(N/P/L/F) | 근거 | 갭 |
+| BP ID | 제목 | 판정(N/P-/P+/L-/L+/F) | 근거 | 갭 |
 #### Capability Level 추정: CLx
 #### 개선 권고
 - ...
@@ -133,7 +135,7 @@ Capability Level 산출:
             type: "string",
             enum: ["strength", "minor", "major", "critical"],
           },
-          rating: { type: "string", enum: ["N", "P", "L", "F", "NR"] },
+          rating: { type: "string", enum: ["N", "P-", "P+", "L-", "L+", "F", "NR"] },
           evidence: { type: "string" },
           gap: { type: "string" },
           recommendation: { type: "string" },
@@ -172,7 +174,7 @@ export const ASPICE_V4_SEED: StandardProfile = {
   version: "4.0",
   description:
     "자동차 제어기 프로젝트의 프로세스 성숙도 평가를 위한 Automotive SPICE v4.0 어세서. SYS / SWE / MAN / SUP 프로세스 그룹을 다룹니다.",
-  ratings: ["N", "P", "L", "F", "NR"],
+  ratings: ["N", "P-", "P+", "L-", "L+", "F", "NR"],
   maturity_levels: [
     { id: "CL0", name: "Incomplete",  description: "프로세스 미구현 또는 목적 달성 실패" },
     { id: "CL1", name: "Performed",   description: "BP 충족, 작업 산출물 존재" },
