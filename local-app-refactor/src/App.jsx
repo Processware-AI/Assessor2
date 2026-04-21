@@ -123,13 +123,7 @@ export default function App() {
     setFileName("sample_SRS_v2.3.pdf");
     setFileSize(2458112);
     setError(""); setPhase(""); setSelectedHistoryId(null);
-    addEntry({
-      id: `h_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      date: new Date().toISOString(),
-      processId: proc.id, processName: proc.name,
-      fileName: "sample_SRS_v2.3.pdf", fileSize: 2458112,
-      results: sampleResults, isSample: true,
-    });
+    // Sample results are for preview only — not saved to history
   };
 
   // ── AI analysis ────────────────────────────────────────────────────────────
