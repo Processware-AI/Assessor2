@@ -1,10 +1,10 @@
-# downloadPdf 함수 완전 교체 스크립트
-# 실행: powershell -ExecutionPolicy Bypass -File fix_pdf.ps1
+# Replace downloadPdf function
+# Run: powershell -ExecutionPolicy Bypass -File fix_pdf.ps1
 
 $f = "C:\Users\LG\aspice-app\src\App.jsx"
 $txt = [System.IO.File]::ReadAllText($f, [System.Text.Encoding]::UTF8)
 
-# 교체할 새 함수 (단일 인용 here-string: 백틱/달러 모두 그대로 처리됨)
+# New function (single-quoted here-string: backticks and dollars are literal)
 $newFunc = @'
   const downloadPdf = async () => {
     if (!displayResults || !reportRef.current) return;
@@ -206,23 +206,23 @@ $newFunc = @'
 
 '@
 
-# 함수 시작/끝 마커로 교체
+# Replace using start/end markers
 $startMarker = "  const downloadPdf = async () => {"
 $endMarker   = "  const viewingHistory"
 
 $si = $txt.IndexOf($startMarker)
 $ei = $txt.IndexOf($endMarker)
 
-if ($si -lt 0) { Write-Host "오류: downloadPdf 시작을 찾을 수 없습니다" -ForegroundColor Red; exit 1 }
-if ($ei -lt 0) { Write-Host "오류: viewingHistory 마커를 찾을 수 없습니다" -ForegroundColor Red; exit 1 }
-if ($si -ge $ei) { Write-Host "오류: 마커 순서가 잘못되었습니다" -ForegroundColor Red; exit 1 }
+if ($si -lt 0) { Write-Host "ERROR: downloadPdf start not found" -ForegroundColor Red; exit 1 }
+if ($ei -lt 0) { Write-Host "ERROR: viewingHistory marker not found" -ForegroundColor Red; exit 1 }
+if ($si -ge $ei) { Write-Host "ERROR: marker order is wrong" -ForegroundColor Red; exit 1 }
 
-# 기존 파일 백업
+# Backup original file
 $backup = $f + ".bak_" + (Get-Date -Format "HHmmss")
 [System.IO.File]::WriteAllText($backup, $txt, [System.Text.Encoding]::UTF8)
-Write-Host "백업: $backup" -ForegroundColor Cyan
+Write-Host "Backup: $backup" -ForegroundColor Cyan
 
-# 교체
+# Replace
 $result = $txt.Substring(0, $si) + $newFunc + $txt.Substring($ei)
 [System.IO.File]::WriteAllText($f, $result, [System.Text.Encoding]::UTF8)
-Write-Host "완료! npm run dev 를 실행하세요." -ForegroundColor Green
+Write-Host "Done! Run: npm run dev" -ForegroundColor Green
