@@ -81,47 +81,47 @@ export default function App() {
     setSelectedHistoryId(null); setAutoDetected(null);
   };
 
-  // ── Sample data ────────────────────────────────────────────────────────────
+  // ── Sample data (fixed to SWE.2 — 5 BPs, all 6-tier ratings used) ──────────
   const loadSample = () => {
-    const cycle = ["F", "L+", "L-", "P+", "P-", "N", "F", "L+"];
-    const rationales = [
-      "요구사항 명세서에 기능/비기능 요건이 체계적으로 작성되어 있으며, 우선순위 분류 및 ID 관리가 이루어짐.",
-      "아키텍처 설계서에 정적/동적 측면이 포함되어 있으나, 일부 인터페이스 정의 미흡.",
-      "통합 검증 절차서가 작성되었으나, 일부 추적성 링크가 누락됨.",
-      "부분적인 설계 검토 회의가 진행되었으나, HW 의존성 분석 및 타이밍 분석이 미흡함.",
-      "형상관리 도구(Polarion)가 연동되어 있으며, 전체 요구사항과의 양방향 추적성 확인됨.",
-      "수행 증거가 확인되지 않음. 관련 산출물 미존재 상태로 의견.",
-      "단위 테스트 케이스가 Teamer에 작성되어 있으며 전체 요구사항과의 커버리지 확인됨.",
-      "변경 요청 처리가 일부 누락되어 추적성이 불완전함.",
+    // Hardcoded ratings for SWE.2 BP1–BP5 using N/P-/P+/L-/L+/F scale
+    // Counts: F=1, L+=1, L-=2, P+=1, P-=0, N=0  →  total=5 = proc.bps.length ✓
+    const sampleRatings = [
+      {
+        bp: "BP1", rating: "L+",
+        rationale: "정적 아키텍처(컴포넌트/인터페이스) 명세가 문서화되어 있으나, 일부 외부 인터페이스 상세 정의 미흡.",
+        evidence: "SWAD_v2.1.docx §3.1 Component Diagram · §3.3 Interface List (pp.14–22)",
+      },
+      {
+        bp: "BP2", rating: "L-",
+        rationale: "시퀀스 다이어그램 등 동적 측면이 일부 작성되었으나, 소프트웨어 모드/상태 전환 행위 정의가 부분적.",
+        evidence: "SWAD_v2.1.docx §4 Sequence Diagrams — 5개 시나리오 중 3개 작성 확인",
+      },
+      {
+        bp: "BP3", rating: "P+",
+        rationale: "아키텍처 분석이 수행되었으나, Cybersecurity/Safety 관련 설계 결정 근거 문서화 미흡.",
+        evidence: "SWAD_Review_MoM_2026-01-20.pdf · Action item 5건 중 2건 미결 상태",
+      },
+      {
+        bp: "BP4", rating: "F",
+        rationale: "Polarion을 통해 SW 아키텍처와 SW 요구사항 간 양방향 추적성 완전 확립. 0 orphan.",
+        evidence: "Polarion Traceability Matrix 2026-03-15 — 100% coverage, 0 orphans confirmed",
+      },
+      {
+        bp: "BP5", rating: "L-",
+        rationale: "합의된 아키텍처가 관련 이해관계자에게 배포되었으나, 일부 팀의 검토 수신 확인이 누락.",
+        evidence: "SharePoint SWAD_v2.1 배포 이력 — QA 팀 수신 확인서 미첨부",
+      },
     ];
-    const evidences = [
-      "SRS_v2.3.docx §3.2 Functional Requirements · §4.1 Non-functional (pp.12–18)",
-      "SWAD_v1.4.docx §2 Architecture Overview · Sequence Diagram pp.22–31",
-      "TechFeasibility_Review_MoM_2026-02-14.pdf · Action item 3건 확인",
-      "ImpactAnalysis_v1.1.xlsx — HW 인터페이스 Network/Timing 분석 항목",
-      "Polarion Traceability Report 2026-03-28 (100% coverage, 0 orphans)",
-      "없음",
-      "Impact_Analysis.xlsx vs SRS_v2.3 §3.2 — 3개 항목 이행",
-      "없음",
-    ];
-    const ratings = proc.bps.map((bp, i) => ({
-      bp: bp.id,
-      rating: cycle[i % cycle.length],
-      rationale: rationales[i % rationales.length],
-      evidence: evidences[i % evidences.length],
-    }));
-    const hasGap = ratings.some(r => r.rating === "N" || r.rating.startsWith("P"));
     const sampleResults = {
-      ratings,
-      summary: hasGap
-        ? "일부 BP에서 수행 증거가 확인되지 않아 CL1 달성에 미달합니다. 개선 계획 수립이 필요합니다."
-        : "주요 BP는 달성되었으나, 일부 항목에서 부분적으로 이행되어 CL1 달성을 위해 보완이 필요합니다.",
-      strengths: "체계적인 요구사항 명세, Polarion 기반 양방향 추적성 확인, 단위 테스트 자동화",
-      gaps: "부분 설계 검토 회의 범위 제한, 변경요청 산출물 일부 누락, 요구사항 우선순위 일부 미흡",
+      ratings: sampleRatings,
+      summary: "BP3(아키텍처 분석) P+ 미달로 CL1 미충족. 설계 결정 근거 문서화 및 Safety 분석 보완 필요.",
+      strengths: "Polarion 기반 완전한 양방향 추적성 확립(BP4 F), 정적 아키텍처 체계적 명세(BP1 L+)",
+      gaps: "아키텍처 분석 근거 문서화 미흡(BP3 P+), 동적 행위 정의 불완전(BP2 L-), 이해관계자 검토 확인 누락(BP5 L-)",
     };
+    setSelectedProcess("SWE.2");
     setResults(sampleResults);
-    setFileName("sample_SRS_v2.3.pdf");
-    setFileSize(2458112);
+    setFileName("sample_SWAD_v2.1.docx");
+    setFileSize(1843200);
     setError(""); setPhase(""); setSelectedHistoryId(null);
     // Sample results are for preview only — not saved to history
   };
